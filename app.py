@@ -28,8 +28,11 @@ def contrast_brightness(frame,contrast=1.0,brightness=0):
     adjusted_frame=np.clip(contrast*frame+brightness,0,255).astype(np.uint8)
     return adjusted_frame
 
-
-
+def img_histogram(frame):
+    B_histo = cv2.calcHist([frame],[0], None, [256], [0,256])
+    G_histo = cv2.calcHist([frame],[1], None, [256], [0,256])
+    R_histo = cv2.calcHist([frame],[2], None, [256], [0,256])
+    return B_histo, G_histo, R_histo
 # Open the default camera
 def run_cam():
     cam = cv2.VideoCapture(0)
@@ -63,7 +66,7 @@ def run_cam():
     cv2.destroyAllWindows()
     
 if __name__=="__main__":
-    loaded_test_image=cv2.imread(r"C:\Users\gaurav\OneDrive\Desktop\xtra\217398584_4157042961046193_1827823406268772815_n.jpg")
+    loaded_test_image=cv2.imread("test.jpg")
     cv2.imshow("Test Image",loaded_test_image)
     cv2.imshow("Tested Image",contrast_brightness(loaded_test_image,1.5,0))
     cv2.waitKey(0)
