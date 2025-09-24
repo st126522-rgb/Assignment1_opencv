@@ -15,7 +15,7 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-
+import math
 ### Capture video from camera and save it to a mp4 file.
 
 def gray_scale(frame):
@@ -34,10 +34,10 @@ def img_histogram(frame):
     R_histo = cv2.calcHist([frame],[2], None, [256], [0,256])
     return B_histo, G_histo, R_histo
 
-def gaussian_filter(frame, kernal_size=5, sigma=0.5):
-    return cv2.GaussianBlur(frame,(kernal_size,kernal_size),sigma)
+def gaussian_filter(frame, kernel_size=5, sigma=0.5):
+    return cv2.GaussianBlur(frame, (kernel_size, kernel_size), sigma)
 
-def bilerater_filter(frame,diamter=9,sigmaColor=75,sigmaSpace=9):
+def bilerater_filter(frame,diamter=9,sigmaColor=75,sigmaSpace=75):
     return cv2.bilateralFilter(frame, diamter, sigmaColor, sigmaSpace)
 
 
@@ -45,7 +45,21 @@ def canny_edge(frame,upper=100,lower=200):
     return cv2.Canny(frame,upper,lower)
 
 def hough_line_detection(frame):
-    pass
+    edge_detected_frame=canny_edge(frame)
+    lines=cv2.HoughLines(edge_detected_frame,1,np.pi/180,150)
+    if lines is not None:
+        for i in range(0,len(lines)):
+            rho=lines[i][0][0]
+            theta = lines[i][0][1]
+            a = math.cos(theta)
+            b = math.sin(theta)
+            x0 = a * rho
+            y0 = b * rho
+            pt1 = (int(x0 + 1000*(-b)), int(y0 + 1000*(a)))
+            pt2 = (int(x0 - 1000*(-b)), int(y0 - 1000*(a)))
+            cv2.line(frame, pt1, pt2, (0,0,255), 3, cv2.LINE_AA)
+    return frame
+        
 
 def panaroma(frames):
     pass
@@ -96,8 +110,11 @@ def run_cam():
     cv2.destroyAllWindows()
     
 if __name__=="__main__":
-    loaded_test_image=cv2.imread("test.jpg")
-    cv2.imshow("Test Image",loaded_test_image)
-    cv2.imshow("Tested Image",contrast_brightness(loaded_test_image,1.5,0))
+    loaded_test_image=cv2.imread("test.jpg") #image for general testing
+    road_img=cv2.imread("road.jpg") # image for hough line detection  
+    # cv2.imshow("Test Image",loaded_test_image)
+    # blurred=gaussian_filter(loaded_test_image,5,5)
+    test=hough_line_detection(road_img)
+    cv2.imshow("Tested Image",test)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
