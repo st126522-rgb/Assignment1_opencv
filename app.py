@@ -34,11 +34,12 @@ def img_histogram(frame):
     R_histo = cv2.calcHist([frame],[2], None, [256], [0,256])
     return B_histo, G_histo, R_histo
 
-def gaussian_filter(frame):
-    pass
+def gaussian_filter(frame, kernal_size=5, sigma=0.5):
+    return cv2.GaussianBlur(frame,(kernal_size,kernal_size),sigma)
 
-def bilerater_filter(frame):
-    pass
+def bilerater_filter(frame,diamter=9,sigmaColor=75,sigmaSpace=9):
+    return cv2.bilateralFilter(frame, diamter, sigmaColor, sigmaSpace)
+
 
 def canny_edge(frame,upper=100,lower=200):
     return cv2.Canny(frame,upper,lower)
