@@ -33,8 +33,37 @@ def img_histogram(frame):
     G_histo = cv2.calcHist([frame],[1], None, [256], [0,256])
     R_histo = cv2.calcHist([frame],[2], None, [256], [0,256])
     return B_histo, G_histo, R_histo
-# Open the default camera
+
+def gaussian_filter(frame):
+    pass
+
+def bilerater_filter(frame):
+    pass
+
+def canny_edge(frame,upper=100,lower=200):
+    return cv2.Canny(frame,upper,lower)
+
+def hough_line_detection(frame):
+    pass
+
+def panaroma(frames):
+    pass
+
+def image_transform(frame,translation,rotation,scale):
+    pass
+
+def camera_calibration(frames):
+    pass
+
+def AR(frame):
+    pass
+
+
+def cam_options(selected):
+    pass
+
 def run_cam():
+# Open the default camera
     cam = cv2.VideoCapture(0)
 
     # Get the default frame width and height
