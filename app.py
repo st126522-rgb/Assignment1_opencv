@@ -17,6 +17,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 ### Capture video from camera and save it to a mp4 file.
+panaroma_frames=[]
+contrast=1.0,brightness=0
+kernel_size_gaussian=5, sigma=0.5
+diamter_bilateral=9,sigmaColor=75,sigmaSpace=75
+upper_canny=100,lower_canny=200
+selected_option=""
 
 def gray_scale(frame):
     return cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
@@ -24,7 +30,7 @@ def gray_scale(frame):
 def hsv(frame):
     return cv2.cvtColor(frame,cv2.COLOR_BGR2HSV)
 
-def contrast_brightness(frame,contrast=1.0,brightness=0):
+def contrast_brightness(frame,contrast=contrast,brightness=brightness):
     adjusted_frame=np.clip(contrast*frame+brightness,0,255).astype(np.uint8)
     return adjusted_frame
 
@@ -34,10 +40,10 @@ def img_histogram(frame):
     R_histo = cv2.calcHist([frame],[2], None, [256], [0,256])
     return B_histo, G_histo, R_histo
 
-def gaussian_filter(frame, kernel_size=5, sigma=0.5):
+def gaussian_filter(frame, kernel_size=kernel_size_gaussian, sigma=sigma):
     return cv2.GaussianBlur(frame, (kernel_size, kernel_size), sigma)
 
-def bilerater_filter(frame,diamter=9,sigmaColor=75,sigmaSpace=75):
+def bilerater_filter(frame,diamter=diamter_bilateral,sigmaColor=sigmaColor,sigmaSpace=sigmaSpace):
     return cv2.bilateralFilter(frame, diamter, sigmaColor, sigmaSpace)
 
 
@@ -76,6 +82,7 @@ def AR(frame):
 
 def cam_options(selected):
     pass
+
 
 def run_cam():
 # Open the default camera
