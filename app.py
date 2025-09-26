@@ -80,6 +80,50 @@ class CameraApp:
         cv2.namedWindow("Controls", cv2.WINDOW_NORMAL)
         cv2.createTrackbar("Threshold1", "Controls", self.canny_th1, 500, self.update_canny_th1)
         cv2.createTrackbar("Threshold2", "Controls", self.canny_th2, 500, self.update_canny_th2)
+        
+      # ---------- PANORAMA STITCHING ----------
+    def stitch_frames(self):
+        if len(self.panorama_frames) < 2:
+            print("Need at least 2 frames for panorama")
+            return None
+
+        # start with the first frame
+        stitched = self.panorama_frames[0]
+        for i in range(1, len(self.panorama_frames)):
+            stitched = self.stitch_pair(stitched, self.panorama_frames[i])
+            if stitched is None:
+                print("Stitching failed at frame", i)
+                break
+        return stitched
+
+    def stitch_pair(self, img1, img2):
+        gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+        gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+
+        sift = cv2.SIFT_create()
+        kp1, des1 = sift.detectAndCompute(gray1, None)
+        kp2, des2 = sift.detectAndCompute(gray2, None)
+
+        bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
+        matches = bf.match(des1, des2)
+        matches = sorted(matches, key=lambda x: x.distance)
+
+        if len(matches) < 4:
+            return None
+
+        src_pts = np.float32([kp1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
+        dst_pts = np.float32([kp2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+
+        H, _ = cv2.findHomography(dst_pts, src_pts, cv2.RANSAC, 5.0)
+        if H is None:
+            return None
+
+        w = img1.shape[1] + img2.shape[1]
+        h = max(img1.shape[0], img2.shape[0])
+
+        result = cv2.warpPerspective(img2, H, (w, h))
+        result[0:img1.shape[0], 0:img1.shape[1]] = img1
+        return result
 
     def clear_controls(self):
         try:
@@ -105,9 +149,16 @@ class CameraApp:
     # ---------------- Menu Display ----------------
     def draw_menu(self, frame):
         h, w = frame.shape[:2]
-        menu_text = "g: Gaussian | b: Bilateral | c: Canny | y: Gray | h: HSV | m: Remove | q: Quit"
-        cv2.putText(frame, menu_text, (10, h - 20), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6, (0, 255, 0), 2)
+        lines = [
+            "Filters: g=Gaussian | b=Bilateral | c=Canny | y=Gray | h=HSV | m=Remove",
+            "Panorama: p=Add frame | o=Stitch | x=Clear",
+            "q=Quit"
+        ]
+        y0 = h - 60
+        for i, text in enumerate(lines):
+            y = y0 + i * 20
+            cv2.putText(frame, text, (10, y), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5, (0, 255, 0), 1, cv2.LINE_AA)
 
     # ---------------- Main Loop ----------------
     def run(self):
@@ -169,6 +220,18 @@ class CameraApp:
                 else:
                     self.active_filter = "hsv"
                 self.clear_controls()  # no sliders
+                
+            # Panorama options
+            elif key == ord("p"):  # add frame
+                self.panorama_frames.append(frame.copy())
+                print(f"Added frame {len(self.panorama_frames)} for panorama")
+            elif key == ord("o"):  # stitch
+                stitched = self.stitch_frames()
+                if stitched is not None:
+                    cv2.imshow("Panorama", stitched)
+            elif key == ord("x"):  # clear frames
+                self.panorama_frames = []
+                print("Panorama list cleared")
 
             # Remove filter
             elif key == ord("m"):
