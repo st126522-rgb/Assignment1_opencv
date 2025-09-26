@@ -17,158 +17,166 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 
-# Global state stored in a dict
-state = {
-    "keyboard_option": "",
-    "contrast": 1.0,
-    "brightness": 0,
-    "kernel_size_gaussian": 5,
-    "sigma": 0.5,
-    "diameter_bilateral": 9,
-    "sigmaColor": 75,
-    "sigmaSpace": 75,
-    "upper_canny": 100,
-    "lower_canny": 200,
-    "fps": 20,
-    "panorama_frames": [],   # store frames for panorama
-    "menu_active": False
-}
-
-
-def gray_scale(frame):
-    return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-def hsv(frame):
-    return cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-
-def contrast_brightness(frame):
-    c = state["contrast"]
-    b = state["brightness"]
-    adjusted_frame = np.clip(c * frame + b, 0, 255).astype(np.uint8)
-    return adjusted_frame
-
-def img_histogram(frame):
-    chans = cv2.split(frame)
-    colors = ("b", "g", "r")
-    for chan, color in zip(chans, colors):
-        hist = cv2.calcHist([chan], [0], None, [256], [0, 256])
-        plt.plot(hist, color=color)
-    plt.show()
-
-def gaussian_filter(frame):
-    return cv2.GaussianBlur(frame, (state["kernel_size_gaussian"], state["kernel_size_gaussian"]), state["sigma"])
-
-def bilateral_filter(frame):
-    return cv2.bilateralFilter(frame, state["diameter_bilateral"], state["sigmaColor"], state["sigmaSpace"])
-
-def canny_edge(frame):
-    return cv2.Canny(frame, state["upper_canny"], state["lower_canny"])
-
-def hough_line_detection(frame):
-    edge_detected = canny_edge(frame)
-    lines = cv2.HoughLines(edge_detected, 1, np.pi / 180, 150)
-    if lines is not None:
-        for rho, theta in lines[:,0]:
-            a = math.cos(theta)
-            b = math.sin(theta)
-            x0 = a * rho
-            y0 = b * rho
-            pt1 = (int(x0 + 1000*(-b)), int(y0 + 1000*(a)))
-            pt2 = (int(x0 - 1000*(-b)), int(y0 - 1000*(a)))
-            cv2.line(frame, pt1, pt2, (0,0,255), 2, cv2.LINE_AA)
-    return frame
-
-def add_panorama_frame(frame):
-    """Store frames for panorama stitching"""
-    state["panorama_frames"].append(frame.copy())
-    print(f"[INFO] Added frame {len(state['panorama_frames'])} for panorama.")
-
-def panorama():
-    """Simple panorama stitching using homography"""
-    if len(state["panorama_frames"]) < 2:
-        print("[WARN] Need at least 2 frames for panorama")
-        return None
-
-    # naive stitcher: just horizontally concat for now
-    stitched = state["panorama_frames"][0]
-    for i in range(1, len(state["panorama_frames"])):
-        stitched = np.hstack((stitched, state["panorama_frames"][i]))
-    return stitched
-
-#function mapping 
-
-filter_dict = {
-    "g": gray_scale,
-    "h": hough_line_detection,
-    "b": gaussian_filter,
-    "c": bilateral_filter,
-    "e": canny_edge,
-    "r": contrast_brightness,
-    "s": hsv
-}
-
-#UI
-
-def cam_options(frame):
-    key = state["keyboard_option"]
-
-    if key in filter_dict:
-        return filter_dict[key](frame)
-
-    elif key == "p":  # add panorama frame
-        add_panorama_frame(frame)
-        state["keyboard_option"] = ""  # reset to avoid continuous adding
-
-    elif key == "o":  # show panorama
-        pano = panorama()
-        if pano is not None:
-            cv2.imshow("Panorama", pano)
-        state["keyboard_option"] = ""
-
-    return frame
 
 
 
-def run_cam():
-    cam = cv2.VideoCapture(0)
+class CameraApp:
+    def __init__(self):
+        self.cap = cv2.VideoCapture(0)
+        self.active_filter = None
 
-    frame_width = int(cam.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_height = int(cam.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        # Gaussian params
+        self.gaussian_kernel = 5
+        self.gaussian_sigma = 1
 
-    while True:
-        ret, frame = cam.read()
-        if not ret:
-            break
+        # Bilateral params
+        self.bilateral_d = 9
+        self.bilateral_sigma_color = 75
+        self.bilateral_sigma_space = 75
 
-        key = cv2.waitKey(1) & 0xFF
-        if key != 255:  # key pressed
-            state["keyboard_option"] = chr(key)
+        # Canny params
+        self.canny_th1 = 100
+        self.canny_th2 = 200
 
-            if state["keyboard_option"] == "m":
-                state["menu_active"] = not state["menu_active"]
-                state["keyboard_option"] = ""
+        self.panorama_frames = []  # store frames for panorama
 
-            if state["keyboard_option"] == "q":
+    # ---------------- Trackbar Callbacks ----------------
+    def update_gaussian_kernel(self, val):
+        if val % 2 == 0:
+            val += 1
+        self.gaussian_kernel = max(1, val)
+
+    def update_gaussian_sigma(self, val):
+        self.gaussian_sigma = max(1, val)
+
+    def update_bilateral_d(self, val):
+        self.bilateral_d = max(1, val)
+
+    def update_bilateral_sigma_color(self, val):
+        self.bilateral_sigma_color = max(1, val)
+
+    def update_bilateral_sigma_space(self, val):
+        self.bilateral_sigma_space = max(1, val)
+
+    def update_canny_th1(self, val):
+        self.canny_th1 = val
+
+    def update_canny_th2(self, val):
+        self.canny_th2 = val
+
+    # ---------------- Trackbar Setup ----------------
+    def setup_gaussian_controls(self):
+        cv2.namedWindow("Controls", cv2.WINDOW_NORMAL)
+        cv2.createTrackbar("Kernel", "Controls", self.gaussian_kernel, 31, self.update_gaussian_kernel)
+        cv2.createTrackbar("Sigma", "Controls", self.gaussian_sigma, 20, self.update_gaussian_sigma)
+
+    def setup_bilateral_controls(self):
+        cv2.namedWindow("Controls", cv2.WINDOW_NORMAL)
+        cv2.createTrackbar("Diameter", "Controls", self.bilateral_d, 20, self.update_bilateral_d)
+        cv2.createTrackbar("Sigma Color", "Controls", self.bilateral_sigma_color, 150, self.update_bilateral_sigma_color)
+        cv2.createTrackbar("Sigma Space", "Controls", self.bilateral_sigma_space, 150, self.update_bilateral_sigma_space)
+
+    def setup_canny_controls(self):
+        cv2.namedWindow("Controls", cv2.WINDOW_NORMAL)
+        cv2.createTrackbar("Threshold1", "Controls", self.canny_th1, 500, self.update_canny_th1)
+        cv2.createTrackbar("Threshold2", "Controls", self.canny_th2, 500, self.update_canny_th2)
+
+    def clear_controls(self):
+        try:
+            cv2.destroyWindow("Controls")
+        except cv2.error:
+            pass  # Ignore if Controls is not open
+
+    # ---------------- Filter Application ----------------
+    def apply_filter(self, frame):
+        if self.active_filter == "g":  # Gaussian
+            return cv2.GaussianBlur(frame, (self.gaussian_kernel, self.gaussian_kernel), self.gaussian_sigma)
+        elif self.active_filter == "b":  # Bilateral
+            return cv2.bilateralFilter(frame, self.bilateral_d, self.bilateral_sigma_color, self.bilateral_sigma_space)
+        elif self.active_filter == "c":  # Canny
+            return cv2.Canny(frame, self.canny_th1, self.canny_th2)
+        elif self.active_filter == "gray":  # Grayscale
+            return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        elif self.active_filter == "hsv":  # HSV
+            return cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        else:
+            return frame
+
+    # ---------------- Menu Display ----------------
+    def draw_menu(self, frame):
+        h, w = frame.shape[:2]
+        menu_text = "g: Gaussian | b: Bilateral | c: Canny | y: Gray | h: HSV | m: Remove | q: Quit"
+        cv2.putText(frame, menu_text, (10, h - 20), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6, (0, 255, 0), 2)
+
+    # ---------------- Main Loop ----------------
+    def run(self):
+        while True:
+            ret, frame = self.cap.read()
+            if not ret:
                 break
 
-        # apply filter
-        new_frame = cam_options(frame)
+            output = self.apply_filter(frame)
+            self.draw_menu(output)
+            cv2.imshow("Camera", output)
 
-        # Overlay menu
-        cv2.putText(new_frame, f"FPS: {state['fps']}", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
-        if state["menu_active"]:
-            cv2.putText(new_frame, "Keys: g=Gray | h=Hough | b=Gauss | c=Bilateral | e=Canny | r=Contrast | s=HSV",
-                        (10, frame_height - 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-            cv2.putText(new_frame, "p=Add Panorama Frame | o=Show Panorama | q=Quit",
-                        (10, frame_height - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-        else:
-            cv2.putText(new_frame, "Mennu[M] | Quit[Q]",
-                        (10, frame_height - 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-        cv2.imshow("Camera", new_frame)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
+                break
 
-    cam.release()
-    cv2.destroyAllWindows()
+            # Gaussian
+            elif key == ord("g"):
+                if self.active_filter == "g":
+                    self.active_filter = None
+                    self.clear_controls()
+                else:
+                    self.active_filter = "g"
+                    self.clear_controls()
+                    self.setup_gaussian_controls()
+
+            # Bilateral
+            elif key == ord("b"):
+                if self.active_filter == "b":
+                    self.active_filter = None
+                    self.clear_controls()
+                else:
+                    self.active_filter = "b"
+                    self.clear_controls()
+                    self.setup_bilateral_controls()
+
+            # Canny
+            elif key == ord("c"):
+                if self.active_filter == "c":
+                    self.active_filter = None
+                    self.clear_controls()
+                else:
+                    self.active_filter = "c"
+                    self.clear_controls()
+                    self.setup_canny_controls()
+
+            # Gray
+            elif key == ord("y"):
+                if self.active_filter == "gray":
+                    self.active_filter = None
+                else:
+                    self.active_filter = "gray"
+                self.clear_controls()  # no sliders
+
+            # HSV
+            elif key == ord("h"):
+                if self.active_filter == "hsv":
+                    self.active_filter = None
+                else:
+                    self.active_filter = "hsv"
+                self.clear_controls()  # no sliders
+
+            # Remove filter
+            elif key == ord("m"):
+                self.active_filter = None
+                self.clear_controls()
+
+        self.cap.release()
+        cv2.destroyAllWindows()
     
 if __name__=="__main__":
     loaded_test_image=cv2.imread("test.jpg") #image for general testing
@@ -178,5 +186,6 @@ if __name__=="__main__":
     # test=hough_line_detection(road_img)
     # cv2.imshow("Tested Image",test)
     # cv2.waitKey(0)
-    run_cam()
+    app = CameraApp()
+    app.run()
     # cv2.destroyAllWindows()
