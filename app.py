@@ -123,13 +123,11 @@ class CameraApp:
         cv2.createTrackbar("Scale", "Controls", 100, 300, self.update_scale)
 
         
-      # ---------- PANORAMA STITCHING ----------
     def stitch_frames(self):
         if len(self.panorama_frames) < 2:
             print("Need at least 2 frames for panorama")
             return None
 
-        # start with the first frame
         stitched = self.panorama_frames[0]
         for i in range(1, len(self.panorama_frames)):
             stitched = self.stitch_pair(stitched, self.panorama_frames[i])
@@ -171,7 +169,7 @@ class CameraApp:
         try:
             cv2.destroyWindow("Controls")
         except cv2.error:
-            pass  # Ignore if Controls is not open
+            pass 
         
     def show_histogram(self, frame):
         # If frame is color, split channels
@@ -232,14 +230,12 @@ class CameraApp:
                     parts = line.strip().split()[1:]
                     face = []
                     for p in parts:
-                        # handle formats like "f v", "f v/vt", "f v/vt/vn"
                         idx = p.split("/")[0]
                         try:
                             face.append(int(idx) - 1)
                         except:
                             pass
                     if len(face) >= 3:
-                        # optionally triangulate polygons (fan triangulation)
                         if len(face) > 3:
                             for i in range(1, len(face)-1):
                                 faces.append([face[0], face[i], face[i+1]])
@@ -334,7 +330,6 @@ class CameraApp:
 
         verts = vertices.copy()
 
-        # --- Normalize and scale ---
         verts -= np.mean(verts, axis=0)  # center at origin
         scale = np.max(np.linalg.norm(verts, axis=1))
         verts /= scale
@@ -346,10 +341,7 @@ class CameraApp:
                     [0, 1, 0]], dtype=float)
         verts = verts @ Rx.T
 
-        # --- Optional: lift slightly above origin ---
-        # verts[:, 1] += 0.0  # keep at exact origin
-
-        # --- Project to 2D ---
+        
         imgpts, _ = cv2.projectPoints(verts, rvec, tvec, self.mtx, self.dist)
         imgpts = np.int32(imgpts).reshape(-1, 2)
 
@@ -361,10 +353,7 @@ class CameraApp:
 
         return frame
 
-
-
    
-    # ---------------- Filter Application ----------------
     def apply_filter(self, frame):
         if self.active_filter == "g":  # Gaussian
             return cv2.GaussianBlur(frame, (self.gaussian_kernel, self.gaussian_kernel), self.gaussian_sigma)
@@ -392,12 +381,10 @@ class CameraApp:
         # Rotation + Scale
         M_rot = cv2.getRotationMatrix2D((w//2, h//2), self.angle, self.scale)
         frame = cv2.warpAffine(frame, M_rot, (w, h))
-        
         return frame
 
         
     
-    # ---------------- Menu Display ----------------
     def draw_menu(self, frame):
         h, w = frame.shape[:2]
         lines = [
@@ -411,7 +398,6 @@ class CameraApp:
             cv2.putText(frame, text, (10, y), cv2.FONT_HERSHEY_SIMPLEX,
                         0.5, (0, 255, 0), 1, cv2.LINE_AA)
 
-    # ---------------- Main Loop ----------------
     def run(self):
         while True:
             ret, frame = self.cap.read()
