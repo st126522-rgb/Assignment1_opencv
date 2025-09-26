@@ -48,9 +48,19 @@ class CameraApp:
         # Load T-Rex model for AR
         self.trex_model = self._load_obj('trex_model.obj')
 
-        # --- Load camera calibration ---
-        self._load_calibration()  
-
+        # --- ARUCO setup ---
+        self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
+        self.aruco_params = cv2.aruco.DetectorParameters()
+        self.aruco_detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.aruco_params)
+        self.marker_size=1
+        
+        # Camera calibration load
+        self.mtx = None
+        self.dist = None
+        self._load_calibration()
+        
+       
+            
     # ---------------- Trackbar Callbacks ----------------
     def update_gaussian_kernel(self, val):
         if val % 2 == 0:
@@ -196,31 +206,54 @@ class CameraApp:
             self.mtx = np.eye(3)
             self.dist = np.zeros((1,5))
             print("Calibration data missing, using default values.")
+            
                 
-    def _load_obj(self, filename):
-        """Load a simple OBJ file. Returns a dict with vertices and faces."""
-        if not os.path.exists(filename):
-            print(f"File {filename} not found.")
-            return None
-
-        vertices = []
+    def _load_obj(self, filename):        
+    
+        verts = []
         faces = []
 
-        with open(filename, 'r') as f:
-            for line in f:
-                if line.startswith('v '):  # vertex
-                    parts = line.strip().split()
-                    vertex = [float(parts[1]), float(parts[2]), float(parts[3])]
-                    vertices.append(vertex)
-                elif line.startswith('f '):  # face
-                    parts = line.strip().split()
-                    # OBJ indices start at 1
-                    face = [int(p.split('/')[0]) - 1 for p in parts[1:]]
-                    faces.append(face)
+        if not os.path.exists(filename):
+            print(f"[OBJ] file not found: {filename}")
+            return None, None
 
-        print(f"Loaded OBJ: {filename}, vertices: {len(vertices)}, faces: {len(faces)}")
-        return {"vertices": np.array(vertices, dtype=np.float32),
-                "faces": np.array(faces, dtype=np.int32)}
+        with open(filename, "r") as f:
+            for line in f:
+                if line.startswith("v "):
+                    parts = line.strip().split()
+                    if len(parts) < 4:
+                        continue
+                    try:
+                        x, y, z = map(float, parts[1:4])
+                        verts.append([x, y, z])
+                    except:
+                        continue
+                elif line.startswith("f "):
+                    parts = line.strip().split()[1:]
+                    face = []
+                    for p in parts:
+                        # handle formats like "f v", "f v/vt", "f v/vt/vn"
+                        idx = p.split("/")[0]
+                        try:
+                            face.append(int(idx) - 1)
+                        except:
+                            pass
+                    if len(face) >= 3:
+                        # optionally triangulate polygons (fan triangulation)
+                        if len(face) > 3:
+                            for i in range(1, len(face)-1):
+                                faces.append([face[0], face[i], face[i+1]])
+                        else:
+                            faces.append(face)
+
+        if len(verts) == 0 or len(faces) == 0:
+            print(f"[OBJ] Warning: loaded but empty verts/faces from {filename}")
+            return None, None
+
+        verts = np.array(verts, dtype=np.float32)
+        print(f"[OBJ] Loaded {filename}: vertices={len(verts)}, faces={len(faces)}")
+        return verts, faces
+
 
     
     def calibrate_camera(self):
@@ -261,17 +294,76 @@ class CameraApp:
             print("Calibration saved to 'calibration.npz'")
 
 
+        
     def _draw_ar_model(self, frame):
+        cv2.putText(frame, "Mode: AUGMENTED REALITY", (20, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
+
+        verts, faces = self.trex_model if self.trex_model else (None, None)
+        if verts is None or faces is None:
+            cv2.putText(frame, "T-Rex model missing", (20, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
+            return frame
+
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         corners, ids, _ = self.aruco_detector.detectMarkers(gray)
-        if ids is not None:
-            rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, 0.05, self.mtx, self.dist)
-            frame = self._project_obj(frame, self.trex_model, rvecs[0], tvecs[0])
-        else:
-            cv2.putText(frame, "No ArUco marker detected", (20,50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255),2)
+
+        if ids is None or len(corners) == 0:
+            cv2.putText(frame, "No ArUco marker detected", (20, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
+            return frame
+
+        # Draw detected markers
+        cv2.aruco.drawDetectedMarkers(frame, corners, ids)
+
+        # Pose estimation
+        marker_size_m = 0.15
+        rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, marker_size_m, self.mtx, self.dist)
+
+        # Draw axis for first marker
+        cv2.drawFrameAxes(frame, self.mtx, self.dist, rvecs[0], tvecs[0], marker_size_m * 0.5)
+
+        # Project T-Rex on first marker
+        frame = self._project_obj(frame, verts, faces, rvecs[0], tvecs[0])
         return frame
 
-    
+
+    def _project_obj(self, frame, vertices, faces, rvec, tvec):
+        if vertices is None or faces is None:
+            return frame
+
+        verts = vertices.copy()
+
+        # --- Normalize and scale ---
+        verts -= np.mean(verts, axis=0)  # center at origin
+        scale = np.max(np.linalg.norm(verts, axis=1))
+        verts /= scale
+        verts *= 0.2  # adjust size for visibility
+
+        # --- Rotate model: X-axis -90° ---
+        Rx = np.array([[1, 0, 0],
+                    [0, 0, -1],
+                    [0, 1, 0]], dtype=float)
+        verts = verts @ Rx.T
+
+        # --- Optional: lift slightly above origin ---
+        # verts[:, 1] += 0.0  # keep at exact origin
+
+        # --- Project to 2D ---
+        imgpts, _ = cv2.projectPoints(verts, rvec, tvec, self.mtx, self.dist)
+        imgpts = np.int32(imgpts).reshape(-1, 2)
+
+        # Draw faces
+        for face in faces:
+            pts = imgpts[face]
+            cv2.fillConvexPoly(frame, pts, (0, 255, 0))
+            cv2.polylines(frame, [pts], isClosed=True, color=(0, 0, 0), thickness=1, lineType=cv2.LINE_AA)
+
+        return frame
+
+
+
+   
     # ---------------- Filter Application ----------------
     def apply_filter(self, frame):
         if self.active_filter == "g":  # Gaussian
@@ -309,7 +401,7 @@ class CameraApp:
     def draw_menu(self, frame):
         h, w = frame.shape[:2]
         lines = [
-            "Filters: [G] Gaussian | [B] Bilateral | [C] Canny | [Y] Gray | [H] HSV | [M] Remove Filter",
+            "Filters: [G] Gaussian | [B] Bilateral | [C] Canny | [Y] Gray | [H] HSV | [M] Remove Filter/ None",
             "[I] Histogram | [T] Transform | [K] Calibrate Camera | [A] AR Mode",
             "[P] Add Frame | [O] Stitch | [X] Clear Frames | [Q] Quit"
         ]

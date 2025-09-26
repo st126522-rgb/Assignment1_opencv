@@ -23,13 +23,12 @@ class ComputerVisionDemo:
         cv2.namedWindow(self.window_name, cv2.WINDOW_AUTOSIZE)
 
         # --- AR & Pinhole Explorer State ---
-        self.mtx = np.eye(3)
-        self.dist = np.zeros((1, 5))
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
         self.aruco_params = cv2.aruco.DetectorParameters()
         self.aruco_detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.aruco_params) 
+        self.mtx = None
+        self.dist = None
         self._load_calibration()
-        self.pinhole_params = {'fx': self.mtx[0, 0], 'fy': self.mtx[1, 1], 'cx': self.mtx[0, 2], 'cy': self.mtx[1, 2]}
 
     def _load_calibration(self):
         if os.path.exists('calibration.npz'):
